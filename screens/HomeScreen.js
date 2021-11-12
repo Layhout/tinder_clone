@@ -1,42 +1,72 @@
 import { useNavigation } from '@react-navigation/core'
-import React, { useLayoutEffect, useRef } from 'react'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { SafeAreaView, Text, Button, View, TouchableOpacity, Image, StyleSheet } from 'react-native'
 import tailwind from 'tailwind-rn';
 import useAuth from '../hooks/useAuth';
 import { Ionicons, Entypo, AntDesign } from "@expo/vector-icons";
 import Swiper from "react-native-deck-swiper";
-
-const DUMMY_DATA = [
-    {
-        firstName: "Hello",
-        lastName: "World",
-        occupation: "Hi universe",
-        photoURL: "https://images.unsplash.com/photo-1636447670364-9dc6c2a0f489?ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&ixlib=rb-1.2.1&auto=format&fit=crop&w=687&q=80",
-        age: 30,
-        id: 1,
-    },
-    {
-        firstName: "Hello",
-        lastName: "World",
-        occupation: "Hi universe",
-        photoURL: "https://images.unsplash.com/photo-1636479230397-4e641521dd56?ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&ixlib=rb-1.2.1&auto=format&fit=crop&w=687&q=80",
-        age: 30,
-        id: 2,
-    },
-    {
-        firstName: "Hello",
-        lastName: "World",
-        occupation: "Hi universe",
-        photoURL: "https://images.unsplash.com/photo-1636524390936-5ef600dd1a8d?ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&ixlib=rb-1.2.1&auto=format&fit=crop&w=687&q=80",
-        age: 30,
-        id: 3,
-    },
-]
+import { collection, doc, getDoc, getDocs, onSnapshot, query, setDoc, where } from '@firebase/firestore';
+import { db } from '../firebase';
 
 const HomeScreen = () => {
     const navigation = useNavigation();
     const { user, logout } = useAuth();
     const swiperRef = useRef(null);
+    const [profiles, setProfiles] = useState([]);
+
+    useLayoutEffect(() => {
+        const unSub = onSnapshot(doc(db, "users", user.uid), snapshot => {
+            if (!snapshot.exists()) {
+                navigation.navigate("Modal");
+            }
+        });
+        return () => unSub();
+    }, []);
+
+    useEffect(() => {
+        let unSub;
+        const fetchCards = async () => {
+            const passes = await getDocs(collection(db, "users", user.uid, "passes")).then(snapshot => snapshot.docs.map(d => d.id));
+            const swipes = await getDocs(collection(db, "users", user.uid, "swipes")).then(snapshot => snapshot.docs.map(d => d.id));
+            const passedUserIds = passes.length > 0 ? passes : ["test"];
+            const swipedUserIds = swipes.length > 0 ? swipes : ["test"];
+            unSub = onSnapshot(query(collection(db, "users"), where("id", "not-in", [...passedUserIds, ...swipedUserIds])), snapshot => {
+                setProfiles(snapshot.docs.filter(d => d.id !== user.uid).map(d => ({
+                    id: d.id,
+                    ...d.data(),
+                })))
+            })
+        }
+        fetchCards();
+        return () => unSub();
+    }, [db]);
+
+    const swipeLeft = (cardIndex) => {
+        if (!profiles[cardIndex]) return;
+        const userSwiped = profiles[cardIndex];
+        console.log(`You swiped PASS on ${userSwiped.displayName}`);
+        setDoc(doc(db, "users", user.uid, "passes", userSwiped.id), userSwiped);
+    }
+
+    const swipeRight = (cardIndex) => {
+        if (!profiles[cardIndex]) return;
+        const userSwiped = profiles[cardIndex];
+        // const logedInProfile = await(await getDocs(doc(db, "users", user.uid))).data();
+        // Check if the user swiped on you...
+        getDoc(dic(db, "users", userSwiped.id, "swipes", user.uid)).then(documentSnapshot => {
+            if (documentSnapshot.exists()) {
+                // user has matched with you before you matched with them...
+                console.log(`you matched with with ${userSwiped.displayName}`);
+                setDoc(doc(db, "users", user.uid, "swipes", userSwiped.id), userSwiped);
+                // Create a match
+
+            } else {
+                // user has swiped as first interaction between with the two or didn't get swiped on...
+                console.log(`You swiped on ${userSwiped.displayName} (${userSwiped.job})`);
+                setDoc(doc(db, "users", user.uid, "swipes", userSwiped.id), userSwiped);
+            }
+        })
+    }
 
     return (
         <SafeAreaView style={tailwind("flex-1")}>
@@ -45,7 +75,7 @@ const HomeScreen = () => {
                 <TouchableOpacity onPress={logout}>
                     <Image source={{ uri: user.photoURL }} style={tailwind("h-10 w-10 rounded-full")} />
                 </TouchableOpacity>
-                <TouchableOpacity>
+                <TouchableOpacity onPress={() => navigation.navigate("Modal")}>
                     <Image style={tailwind("h-10 w-10")} resizeMode="contain" source={require("../logo.png")} />
                 </TouchableOpacity>
                 <TouchableOpacity onPress={() => navigation.navigate("Chat")}>
@@ -59,13 +89,13 @@ const HomeScreen = () => {
                 <Swiper
                     ref={swiperRef}
                     containerStyle={{ backgroundColor: "tranparent" }}
-                    cards={DUMMY_DATA}
+                    cards={profiles}
                     stackSize={5}
                     cardIndex={0}
                     verticalSwipe={false}
                     animateCardOpacity
-                    onSwipedLeft={() => console.log("swiper pass")}
-                    onSwipedRight={() => console.log("swiper match")}
+                    onSwipedLeft={(cardIndex) => swipeLeft(cardIndex)}
+                    onSwipedRight={(cardIndex) => swipeRight(cardIndex)}
                     overlayLabels={{
                         left: {
                             title: "NOPE",
@@ -85,18 +115,21 @@ const HomeScreen = () => {
                             }
                         }
                     }}
-                    renderCard={card => (
+                    renderCard={card => card ?
                         <View style={[tailwind("bg-white h-3/4 rounded-xl relative"), styles.cardShadow]} key={card.id}>
                             <Image source={{ uri: card.photoURL }} style={tailwind("h-full w-full rounded-xl absolute top-0")} />
                             <View style={tailwind("bg-white w-full h-20 absolute bottom-0 justify-between items-center flex-row px-6 py-2 rounded-b-xl")}>
                                 <View>
-                                    <Text style={tailwind("text-xl font-bold")}>{card.firstName} {card.lastName}</Text>
-                                    <Text>{card.occupation}</Text>
+                                    <Text style={tailwind("text-xl font-bold")}>{card.displayName}</Text>
+                                    <Text>{card.job}</Text>
                                 </View>
                                 <Text style={tailwind("text-2xl font-bold")}>{card.age}</Text>
                             </View>
                         </View>
-                    )} />
+                        : <View style={[tailwind("relative bg-white h-3/4 rounded-xl justify-center items-center"), styles.cardShadow]}>
+                            <Text style={tailwind("font-bold mb-5")}>No more profiles</Text>
+                            <Image style={tailwind("h-20 w-full")} height={100} width={100} source={{ uri: 'https://links.papareact.com/6gb' }} />
+                        </View>} />
             </View>
             <View style={tailwind("flex-row justify-evenly")}>
                 <TouchableOpacity style={tailwind("items-center justify-center rounded-full w-16 h-16 bg-red-200")} onPress={() => swiperRef.current.swipeLeft()} >
