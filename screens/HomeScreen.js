@@ -5,8 +5,9 @@ import tailwind from 'tailwind-rn';
 import useAuth from '../hooks/useAuth';
 import { Ionicons, Entypo, AntDesign } from "@expo/vector-icons";
 import Swiper from "react-native-deck-swiper";
-import { collection, doc, getDoc, getDocs, onSnapshot, query, setDoc, where } from '@firebase/firestore';
+import { collection, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc, where } from '@firebase/firestore';
 import { db } from '../firebase';
+import generateId from '../lib/generateId';
 
 const HomeScreen = () => {
     const navigation = useNavigation();
@@ -48,10 +49,10 @@ const HomeScreen = () => {
         setDoc(doc(db, "users", user.uid, "passes", userSwiped.id), userSwiped);
     }
 
-    const swipeRight = (cardIndex) => {
+    const swipeRight = async (cardIndex) => {
         if (!profiles[cardIndex]) return;
         const userSwiped = profiles[cardIndex];
-        // const logedInProfile = await(await getDocs(doc(db, "users", user.uid))).data();
+        const loggedInProfile = await (await getDocs(doc(db, "users", user.uid))).data();
         // Check if the user swiped on you...
         getDoc(dic(db, "users", userSwiped.id, "swipes", user.uid)).then(documentSnapshot => {
             if (documentSnapshot.exists()) {
@@ -59,7 +60,17 @@ const HomeScreen = () => {
                 console.log(`you matched with with ${userSwiped.displayName}`);
                 setDoc(doc(db, "users", user.uid, "swipes", userSwiped.id), userSwiped);
                 // Create a match
-
+                setDoc(doc(db, "matches", generateId(user.uid, userSwiped.id)), {
+                    users: {
+                        [user.uid]: loggedInProfile,
+                        [userSwiped.id]: userSwiped
+                    },
+                    usersMatched: [user.uid, userSwiped.id],
+                    timestamp: serverTimestamp()
+                });
+                navigation.navigate("Match", {
+                    loggedInProfile, userSwiped
+                });
             } else {
                 // user has swiped as first interaction between with the two or didn't get swiped on...
                 console.log(`You swiped on ${userSwiped.displayName} (${userSwiped.job})`);
