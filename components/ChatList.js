@@ -18,7 +18,7 @@ const ChatList = () => {
         return () => unSub();
     }, [user])
 
-    return matches.length > 0 ? <FlatList style={tailwind("h-full")} data={matches} keyExtractor={item => item.id} renderItem={({ item }) => <ChatRow matchDetail={item} />} /> : <View style={tailwind("p-5")}>
+    return matches.length > 0 ? <FlatList style={tailwind("h-full")} data={matches} keyExtractor={item => item.id} renderItem={({ item }) => <ChatRow matchDetails={item} />} /> : <View style={tailwind("p-5")}>
         <Text style={tailwind("text-center text-lg")}>No matches at the moment...</Text>
     </View>
 }
